@@ -101,6 +101,23 @@ void unchecked_expected_error(const etl::expected<int, int> &exp) {
 void checked_expected_error(const etl::expected<int, int> &exp) {
   if (!exp) {
     exp.error(); // no-warning
+  } else {
+    exp.error();
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void unchecked_expected_value(const etl::expected<int, int> &exp) {
+  exp.value();
+  // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+}
+
+void checked_expected_backwards(const etl::expected<int, int> &exp) {
+  if (exp) {
+    exp.value(); // no-warning
+  } else {
+    exp.value();
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
   }
 }
 
@@ -136,5 +153,108 @@ void function_calling_analyzer_noreturn(const etl::optional<int>& opt) {
   {
     // TODO: Remove the else branch once the analyzer can properly track noreturn functions and their impact on control flow.
     *opt; // no-warning
+  }
+}
+
+// ==========================================
+// Complex Control Flow & Short-Circuiting
+// ==========================================
+
+void test_short_circuit_and(const etl::optional<int> &opt) {
+  // Safe: opt.value() is only evaluated if `opt` evaluates to true
+  if (opt && opt.value() > 0) {
+    opt.value(); // no-warning
+  }
+}
+
+void test_short_circuit_or(const etl::optional<int> &opt) {
+  // Safe: opt.value() is only evaluated if `!opt` evaluates to false (meaning it has a value)
+  if (!opt || opt.value() == 0) { 
+    return;
+  }
+  opt.value(); // no-warning
+}
+
+void test_ternary_operator(const etl::optional<int> &opt) {
+  int x = opt ? opt.value() : 0; // no-warning
+}
+
+void test_sequential_checks(etl::optional<int> opt) {
+  if (opt) {
+    opt.value(); // no-warning
+  }
+  // The state from the 'if' block does not leak out here.
+  opt.value(); 
+  // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+}
+
+// ==========================================
+// Instance Isolation
+// ==========================================
+
+void test_mismatched_check(const etl::optional<int> &opt1, const etl::optional<int> &opt2) {
+  if (opt1) {
+    opt2.value(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void test_nested_checks(const etl::optional<int> &opt1, const etl::optional<int> &opt2) {
+  if (opt1) {
+    if (opt2) {
+      opt1.value(); // no-warning
+      opt2.value(); // no-warning
+    }
+    opt1.value(); // no-warning
+    opt2.value(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+// ==========================================
+// Loops and Re-evaluation
+// ==========================================
+
+// void test_while_loop_clear(etl::optional<int> opt) {
+//   while (opt) {
+//     opt.value(); // no-warning
+//     opt.clear();
+//     opt.value(); 
+// Would expect a warn here, but currently the checker doesn't handle state changes within loops very well, leading to potential false negatives. This is an area for future improvement.
+//   }
+// }
+
+void test_for_loop(etl::optional<int> opt) {
+  // The loop condition guarantees `opt` is safe at the start of the block
+  for (; opt; opt.reset()) {
+    opt.value(); // no-warning
+  }
+}
+
+// ==========================================
+// expected Exhaustive Branching
+// ==========================================
+
+void test_expected_true_branch(const etl::expected<int, int> &exp) {
+  if (exp) {
+    exp.value(); // no-warning
+    exp.error(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void test_expected_false_branch(const etl::expected<int, int> &exp) {
+  if (!exp.has_value()) {
+    exp.error(); // no-warning
+    exp.value(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void test_expected_if_else(const etl::expected<int, int> &exp) {
+  if (exp.has_value()) {
+    exp.value(); // no-warning
+  } else {
+    exp.error(); // no-warning
   }
 }
