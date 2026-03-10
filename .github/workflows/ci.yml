@@ -46,7 +46,7 @@ jobs:
             echo "----------------------------------------------------------------"
             echo "| Running Clang Static Analyzer with EtlAccessChecker plugin...|"
             echo "----------------------------------------------------------------"
-            clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
+            ctest --test-dir build_clang --output-on-failure -VV
 
       - name: Upload Plugin Artifact
         # This step runs on the host runner. Because the devcontainer mounts the workspace, 
