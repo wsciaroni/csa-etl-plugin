@@ -35,6 +35,8 @@ public:
       const MemRegion *Region = ThisVal.getAsRegion();
       if (!Region) return;
 
+      Region = Region->StripCasts();
+
       ProgramStateRef State = C.getState();
       const EtlState *TrackedState = State->get<EtlStateMap>(Region);
 
@@ -77,7 +79,25 @@ public:
 
     std::string FuncName = MD->getNameAsString();
 
-    // Intercept state-checking methods
+    // 1. Handle state-clearing methods like reset()
+    if (FuncName == "reset" || FuncName == "clear") {
+      const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
+      if (!InstanceCall) return;
+
+      SVal ThisVal = InstanceCall->getCXXThisVal();
+      const MemRegion *Region = ThisVal.getAsRegion();
+      if (!Region) return;
+      
+      // Strip casts to ensure matching keys for references
+      Region = Region->StripCasts(); 
+
+      ProgramStateRef State = C.getState();
+      State = State->set<EtlStateMap>(Region, EtlState::Empty);
+      C.addTransition(State);
+      return;
+    }
+
+    // 2. Intercept state-checking methods
     if (FuncName == "has_value" || FuncName == "operator bool") {
       const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
       if (!InstanceCall) return;
@@ -85,8 +105,9 @@ public:
       SVal ThisVal = InstanceCall->getCXXThisVal();
       const MemRegion *Region = ThisVal.getAsRegion();
       if (!Region) return;
+      
+      Region = Region->StripCasts();
 
-      // Get the symbolic return value of has_value() or operator bool()
       SVal RetVal = Call.getReturnValue();
       auto DefinedRetVal = RetVal.getAs<DefinedSVal>();
       if (!DefinedRetVal) return;
@@ -94,8 +115,6 @@ public:
       ProgramStateRef State = C.getState();
       ProgramStateRef StateTrue, StateFalse;
       
-      // Split the universe! 
-      // assume() returns a pair of states: {assume(true), assume(false)}
       std::tie(StateTrue, StateFalse) = State->assume(*DefinedRetVal);
 
       if (StateTrue) {

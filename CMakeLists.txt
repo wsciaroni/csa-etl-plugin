@@ -26,6 +26,7 @@ add_subdirectory ("${CMAKE_CURRENT_LIST_DIR}/libraries")
 
 # add_subdirectory ("${CMAKE_CURRENT_LIST_DIR}/tests")
 
+# clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx -verify
 add_test(NAME "Test"
-    COMMAND clang++ -cc1 -load ${CMAKE_BINARY_DIR}/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker ${CMAKE_SOURCE_DIR}/libraries/EtlCheckerlib/tests/test_etl_access.cxx
+    COMMAND clang++ -cc1 -load ${CMAKE_BINARY_DIR}/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker ${CMAKE_SOURCE_DIR}/libraries/EtlCheckerlib/tests/test_etl_access.cxx -verify
 )
