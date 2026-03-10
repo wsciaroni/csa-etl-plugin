@@ -6,7 +6,7 @@ include(AddLLVM)
 find_package(Clang REQUIRED)
 
 # Build as a shared module (.so or .dylib)
-add_library(EtlChecker MODULE source/Core.cpp)
+add_library(EtlChecker MODULE source/EtlChecker.cxx)
 
 target_compile_definitions(EtlChecker PUBLIC ${LLVM_DEFINITIONS})
 target_include_directories(EtlChecker PUBLIC ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})

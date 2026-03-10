@@ -18,11 +18,16 @@ Instead of maintaining a massive custom fork of `clang-tools-extra` to add ETL s
 ## Building (WIP)
 *Note: This requires LLVM/Clang development headers to be installed on your system.*
 
+```bash
+cmake --preset default
+cmake --build --preset default
+```
+
 ## Usage
 Load the compiled shared library (.so or .dylib) dynamically into Clang:
 
 ```bash
-clang++ -cc1 -load /path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker your_file.cpp
+clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
 ```
 
 ## Contributing
