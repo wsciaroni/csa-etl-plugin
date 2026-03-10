@@ -33,8 +33,8 @@ struct Dummy {
 
 void test_optional_unsafe_direct_access() {
     etl::optional<int> opt;
-    int x = opt.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
-    int y = *opt;        // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
+    int x = opt.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
+    int y = *opt;        // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
 }
 
 void test_optional_safe_has_value() {
@@ -57,7 +57,7 @@ void test_optional_unsafe_else_branch() {
     if (opt) {
         // safe
     } else {
-        int x = opt.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
+        int x = opt.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
     }
 }
 
@@ -67,8 +67,8 @@ void test_optional_unsafe_else_branch() {
 
 void test_expected_unsafe_direct_access() {
     etl::expected<int, int> exp;
-    int x = exp.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
-    int e = exp.error(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
+    int x = exp.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
+    int e = exp.error(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
 }
 
 void test_expected_safe_value_access() {
@@ -88,8 +88,8 @@ void test_expected_safe_error_access() {
 void test_expected_unsafe_wrong_branch() {
     etl::expected<int, int> exp;
     if (exp) {
-        int e = exp.error(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
+        int e = exp.error(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
     } else {
-        int x = exp.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check.}}
+        int x = exp.value(); // expected-warning{{etl::expected/optional is dereferenced without a guaranteed value check}}
     }
 }

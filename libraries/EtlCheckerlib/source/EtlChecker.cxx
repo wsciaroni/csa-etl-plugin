@@ -19,54 +19,97 @@ class EtlAccessChecker : public Checker<check::PreCall, check::PostCall, check::
   mutable std::unique_ptr<BugType> Bug;
 
 public:
-  // Runs BEFORE a function call is evaluated
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const {
-    if (!Call.isGlobalCFunction() && Call.getCalleeIdentifier()) {
-      StringRef FuncName = Call.getCalleeIdentifier()->getName();
+    const auto *MD = dyn_cast_or_null<CXXMethodDecl>(Call.getDecl());
+    if (!MD) return;
 
-      // Intercept .value(), .error(), operator*, operator->
-      if (FuncName == "value" || FuncName == "error" || 
-          FuncName == "operator*" || FuncName == "operator->") {
-        
-        const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
-        if (!InstanceCall) return;
+    std::string FuncName = MD->getNameAsString();
 
-        // Get the memory region of the object being called
-        SVal ThisVal = InstanceCall->getCXXThisVal();
-        const MemRegion *Region = ThisVal.getAsRegion();
-        if (!Region) return;
+    if (FuncName == "value" || FuncName == "error" || 
+        FuncName == "operator*" || FuncName == "operator->") {
+      
+      const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
+      if (!InstanceCall) return;
 
-        // Check our custom state map
-        ProgramStateRef State = C.getState();
-        const EtlState *TrackedState = State->get<EtlStateMap>(Region);
+      SVal ThisVal = InstanceCall->getCXXThisVal();
+      const MemRegion *Region = ThisVal.getAsRegion();
+      if (!Region) return;
 
-        // If the state is Empty or we never checked it (Unknown), emit a warning!
+      ProgramStateRef State = C.getState();
+      const EtlState *TrackedState = State->get<EtlStateMap>(Region);
+
+      bool IsBug = false;
+
+      // Logic for .value(), *, and ->
+      if (FuncName != "error") {
+        // It's a bug if we don't explicitly know it has a value
         if (!TrackedState || *TrackedState != EtlState::HasValue) {
-          if (!Bug) {
-            Bug = std::make_unique<BugType>(this, "Unchecked ETL Access", "C++ ETL Error Handling");
-          }
-          
-          ExplodedNode *ErrNode = C.generateErrorNode();
-          if (ErrNode) {
-            auto Report = std::make_unique<PathSensitiveBugReport>(
-                *Bug, "etl::expected/optional is dereferenced without a guaranteed value check.", ErrNode);
-            Report->markInteresting(Region);
-            C.emitReport(std::move(Report));
-          }
+          IsBug = true;
+        }
+      } 
+      // Logic for .error()
+      else {
+        // It's a bug if we don't explicitly know it's empty/has an error
+        if (!TrackedState || *TrackedState != EtlState::Empty) {
+          IsBug = true;
+        }
+      }
+
+      if (IsBug) {
+        if (!Bug) {
+          Bug = std::make_unique<BugType>(this, "Unchecked ETL Access", "C++ ETL Error Handling");
+        }
+        
+        ExplodedNode *ErrNode = C.generateErrorNode();
+        if (ErrNode) {
+          auto Report = std::make_unique<PathSensitiveBugReport>(
+              *Bug, "etl::expected/optional is dereferenced without a guaranteed value check", ErrNode);
+          Report->markInteresting(Region);
+          C.emitReport(std::move(Report));
         }
       }
     }
   }
 
-  // Runs AFTER a function call is evaluated
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const {
-    // TODO: This is where you intercept .has_value() or operator bool().
-    // You will split the ProgramState here: 
-    // State 1 (Return True) -> map Region to EtlState::HasValue
-    // State 2 (Return False) -> map Region to EtlState::Empty
+    const auto *MD = dyn_cast_or_null<CXXMethodDecl>(Call.getDecl());
+    if (!MD) return;
+
+    std::string FuncName = MD->getNameAsString();
+
+    // Intercept state-checking methods
+    if (FuncName == "has_value" || FuncName == "operator bool") {
+      const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
+      if (!InstanceCall) return;
+
+      SVal ThisVal = InstanceCall->getCXXThisVal();
+      const MemRegion *Region = ThisVal.getAsRegion();
+      if (!Region) return;
+
+      // Get the symbolic return value of has_value() or operator bool()
+      SVal RetVal = Call.getReturnValue();
+      auto DefinedRetVal = RetVal.getAs<DefinedSVal>();
+      if (!DefinedRetVal) return;
+
+      ProgramStateRef State = C.getState();
+      ProgramStateRef StateTrue, StateFalse;
+      
+      // Split the universe! 
+      // assume() returns a pair of states: {assume(true), assume(false)}
+      std::tie(StateTrue, StateFalse) = State->assume(*DefinedRetVal);
+
+      if (StateTrue) {
+        StateTrue = StateTrue->set<EtlStateMap>(Region, EtlState::HasValue);
+        C.addTransition(StateTrue);
+      }
+
+      if (StateFalse) {
+        StateFalse = StateFalse->set<EtlStateMap>(Region, EtlState::Empty);
+        C.addTransition(StateFalse);
+      }
+    }
   }
 
-  // Cleans up tracked regions when they go out of scope to save memory
   void checkDeadSymbols(SymbolReaper &SR, CheckerContext &C) const {
     ProgramStateRef State = C.getState();
     EtlStateMapTy TrackedMap = State->get<EtlStateMap>();
