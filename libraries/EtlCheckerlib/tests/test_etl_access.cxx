@@ -258,3 +258,45 @@ void test_expected_if_else(const etl::expected<int, int> &exp) {
     exp.error(); // no-warning
   }
 }
+
+// ==========================================
+// Explicit Boolean Casts & Variable Tracking
+// ==========================================
+
+void test_optional_static_cast(const etl::optional<int> &opt) {
+  bool has_val = static_cast<bool>(opt);
+  if (has_val) {
+    opt.value(); // no-warning
+  } else {
+    opt.value(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void test_expected_static_cast(const etl::expected<int, int> &exp) {
+  bool is_valid = static_cast<bool>(exp);
+  if (is_valid) {
+    exp.value(); // no-warning
+    exp.error(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  } else {
+    exp.error(); // no-warning
+    exp.value(); 
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
+void test_optional_c_style_cast(const etl::optional<int> &opt) {
+  if ((bool)opt) {
+    opt.value(); // no-warning
+  }
+}
+
+void test_bool_variable_reassignment(const etl::optional<int> &opt) {
+  bool is_safe = static_cast<bool>(opt);
+  bool is_still_safe = is_safe; // Pass the symbolic value around
+  
+  if (is_still_safe) {
+    opt.value(); // no-warning
+  }
+}
