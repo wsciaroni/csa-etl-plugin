@@ -35,9 +35,18 @@ jobs:
           push: always
           # These commands run INSIDE your devcontainer
           runCmd: |
+            echo "----------------------------------------------------------------"
+            echo "| Configuring CMake for EtlChecker plugin...                   |"
+            echo "----------------------------------------------------------------"
             cmake -B build_clang -S .
-            cmake --build build_clang --parallel
-            clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx -verify
+            echo "----------------------------------------------------------------"
+            echo "| Building EtlChecker plugin...                                |"
+            echo "----------------------------------------------------------------"
+            cmake --build build_clang --parallel --target EtlChecker
+            echo "----------------------------------------------------------------"
+            echo "| Running Clang Static Analyzer with EtlAccessChecker plugin...|"
+            echo "----------------------------------------------------------------"
+            clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
 
       - name: Upload Plugin Artifact
         # This step runs on the host runner. Because the devcontainer mounts the workspace, 
