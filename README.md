@@ -17,3 +17,14 @@ Instead of maintaining a massive custom fork of `clang-tools-extra` to add ETL s
 
 ## Building (WIP)
 *Note: This requires LLVM/Clang development headers to be installed on your system.*
+
+## Usage
+Load the compiled shared library (.so or .dylib) dynamically into Clang:
+
+```bash
+clang++ -cc1 -load /path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker your_file.cpp
+```
+
+## Contributing
+
+Contributions and PRs are welcome! If you are familiar with the Clang Static Analyzer API, ProgramState, and MemRegion tracking, feel free to open an issue or submit a patch.

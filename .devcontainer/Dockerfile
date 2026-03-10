@@ -1,12 +1,19 @@
-FROM mcr.microsoft.com/devcontainers/cpp:0-debian-11
+ARG BASE_IMAGE_NAME="clang:latest"
 
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get autoremove -y && \
-    apt-get clean -y && \
-    rm -rf /var/lib/apt/lists/*; \
-    curl -L -O https://github.com/Kitware/CMake/releases/download/v3.25.2/cmake-3.25.2-linux-x86_64.tar.gz && \
-    tar -xf cmake-3.25.2-linux-x86_64.tar.gz && \
-    rm cmake-3.25.2-linux-x86_64.tar.gz;
+FROM ${BASE_IMAGE_NAME}
 
-ENV PATH "/cmake-3.25.2-linux-x86_64/bin:/:$PATH"
+ARG REINSTALL_CMAKE_VERSION_FROM_SOURCE="3.31.7"
+
+# Optionally install the cmake for vcpkg
+COPY ./reinstall-cmake.sh /tmp/
+
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends \
+        git \
+    && apt-get -y install libclang-19-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "${REINSTALL_CMAKE_VERSION_FROM_SOURCE}" != "none" ]; then \
+        chmod +x /tmp/reinstall-cmake.sh && /tmp/reinstall-cmake.sh ${REINSTALL_CMAKE_VERSION_FROM_SOURCE}; \
+    fi \
+    && rm -f /tmp/reinstall-cmake.sh
