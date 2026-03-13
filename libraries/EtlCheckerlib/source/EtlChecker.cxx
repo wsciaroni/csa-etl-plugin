@@ -62,6 +62,33 @@ static bool isEtlExpectedType(QualType QT) {
   return isEtlTypeNamed(RD, {"expected"});
 }
 
+static bool isEtlOptionalType(QualType QT) {
+  QT = QT.getNonReferenceType();
+  if (QT.isNull()) return false;
+
+  const auto *RD = QT->getAsCXXRecordDecl();
+  return isEtlTypeNamed(RD, {"optional"});
+}
+
+static const MemRegion *normalizeRegion(SVal V) {
+  const MemRegion *Region = V.getAsRegion();
+  if (!Region) {
+    return nullptr;
+  }
+  return Region->StripCasts();
+}
+
+static bool isAssignmentOperatorCall(const CallExpr *Call) {
+  const auto *FD = Call->getDirectCallee();
+  const auto *MD = dyn_cast_or_null<CXXMethodDecl>(FD);
+  if (!MD) {
+    return false;
+  }
+
+  return MD->isOverloadedOperator() &&
+         MD->getOverloadedOperator() == OO_Equal;
+}
+
 enum class CallValueUse { Used, Discarded, ExplicitDiscard };
 
 // Classifies whether a call expression's value is consumed by surrounding AST.
@@ -111,7 +138,10 @@ static CallValueUse classifyCallValueUse(const Expr *E, ASTContext &Ctx) {
   return CallValueUse::Used;
 }
 
-class EtlAccessChecker : public Checker<check::PreCall, check::PostCall, check::DeadSymbols> {
+class EtlAccessChecker : public Checker<check::PreCall,
+                                        check::PostCall,
+                                        check::PostStmt<CXXConstructExpr>,
+                                        check::DeadSymbols> {
   mutable std::unique_ptr<BugType> Bug;
 
 public:
@@ -179,34 +209,82 @@ public:
 
     std::string FuncName = MD->getNameAsString();
 
-    // 1. Handle state-clearing methods like reset()
-    if (FuncName == "reset" || FuncName == "clear") {
+    // 1. Handle direct state updates from mutating calls.
+    if (FuncName == "reset" || FuncName == "clear" || FuncName == "emplace") {
       const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
       if (!InstanceCall) return;
 
-      SVal ThisVal = InstanceCall->getCXXThisVal();
-      const MemRegion *Region = ThisVal.getAsRegion();
+      const MemRegion *Region = normalizeRegion(InstanceCall->getCXXThisVal());
       if (!Region) return;
-      
-      // Strip casts to ensure matching keys for references
-      Region = Region->StripCasts(); 
 
       ProgramStateRef State = C.getState();
-      State = State->set<EtlStateMap>(Region, EtlState::Empty);
+      const EtlState NewState =
+          (FuncName == "emplace") ? EtlState::HasValue : EtlState::Empty;
+      State = State->set<EtlStateMap>(Region, NewState);
       C.addTransition(State);
       return;
     }
 
-    // 2. Intercept state-checking methods
+    // 2. Track assignment semantics.
+    if (FuncName == "operator=") {
+      const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
+      if (!InstanceCall) return;
+
+      const MemRegion *ThisRegion = normalizeRegion(InstanceCall->getCXXThisVal());
+      if (!ThisRegion) return;
+
+      ProgramStateRef State = C.getState();
+      EtlState AssignedState = EtlState::HasValue;
+
+      if (Call.getNumArgs() > 0) {
+        const MemRegion *SourceRegion = normalizeRegion(Call.getArgSVal(0));
+        if (SourceRegion) {
+          const EtlState *SourceState = State->get<EtlStateMap>(SourceRegion);
+          AssignedState = SourceState ? *SourceState : EtlState::Unknown;
+        }
+      }
+
+      State = State->set<EtlStateMap>(ThisRegion, AssignedState);
+      C.addTransition(State);
+      return;
+    }
+
+    // 3. Track state transfer between two ETL instances.
+    if (FuncName == "swap") {
+      const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
+      if (!InstanceCall || Call.getNumArgs() == 0) return;
+
+      const MemRegion *ThisRegion = normalizeRegion(InstanceCall->getCXXThisVal());
+      const MemRegion *OtherRegion = normalizeRegion(Call.getArgSVal(0));
+      if (!ThisRegion || !OtherRegion) return;
+
+      ProgramStateRef State = C.getState();
+      const EtlState *ThisState = State->get<EtlStateMap>(ThisRegion);
+      const EtlState *OtherState = State->get<EtlStateMap>(OtherRegion);
+
+      if (OtherState) {
+        State = State->set<EtlStateMap>(ThisRegion, *OtherState);
+      } else {
+        State = State->remove<EtlStateMap>(ThisRegion);
+      }
+
+      if (ThisState) {
+        State = State->set<EtlStateMap>(OtherRegion, *ThisState);
+      } else {
+        State = State->remove<EtlStateMap>(OtherRegion);
+      }
+
+      C.addTransition(State);
+      return;
+    }
+
+    // 4. Intercept state-checking methods
     if (FuncName == "has_value" || FuncName == "operator bool") {
       const auto *InstanceCall = dyn_cast<CXXInstanceCall>(&Call);
       if (!InstanceCall) return;
 
-      SVal ThisVal = InstanceCall->getCXXThisVal();
-      const MemRegion *Region = ThisVal.getAsRegion();
+      const MemRegion *Region = normalizeRegion(InstanceCall->getCXXThisVal());
       if (!Region) return;
-      
-      Region = Region->StripCasts();
 
       SVal RetVal = Call.getReturnValue();
       auto DefinedRetVal = RetVal.getAs<DefinedSVal>();
@@ -229,6 +307,66 @@ public:
     }
   }
 
+  void checkPostStmt(const CXXConstructExpr *ConstructExpr,
+                     CheckerContext &C) const {
+    const CXXConstructorDecl *Ctor = ConstructExpr->getConstructor();
+    if (!Ctor) return;
+
+    // Constructor state tracking is currently implemented for etl::optional.
+    if (!isEtlTypeNamed(Ctor->getParent(), {"optional"})) {
+      return;
+    }
+
+    const MemRegion *Region = normalizeRegion(C.getSVal(ConstructExpr));
+    if (!Region) {
+      // Fallback for local variable initialization where the expression SVal
+      // does not directly carry the target region.
+      const Stmt *Current = ConstructExpr;
+      ASTContext &AstCtx = C.getASTContext();
+
+      while (Current) {
+        auto Parents = AstCtx.getParents(*Current);
+        if (Parents.empty()) {
+          break;
+        }
+
+        const auto &Parent = Parents[0];
+
+        if (const auto *VD = Parent.get<VarDecl>()) {
+          Region = C.getSValBuilder()
+                       .getRegionManager()
+                       .getVarRegion(VD, C.getLocationContext())
+                       ->StripCasts();
+          break;
+        }
+
+        const auto *ParentStmt = Parent.get<Stmt>();
+        if (!ParentStmt) {
+          break;
+        }
+
+        if (isa<ExprWithCleanups>(ParentStmt) ||
+            isa<ImplicitCastExpr>(ParentStmt) ||
+            isa<ParenExpr>(ParentStmt)) {
+          Current = ParentStmt;
+          continue;
+        }
+
+        break;
+      }
+    }
+
+    if (!Region) {
+      return;
+    }
+
+    ProgramStateRef State = C.getState();
+    const EtlState NewState =
+        (ConstructExpr->getNumArgs() == 0) ? EtlState::Empty : EtlState::HasValue;
+    State = State->set<EtlStateMap>(Region, NewState);
+    C.addTransition(State);
+  }
+
   void checkDeadSymbols(SymbolReaper &SR, CheckerContext &C) const {
     ProgramStateRef State = C.getState();
     EtlStateMapTy TrackedMap = State->get<EtlStateMap>();
@@ -247,6 +385,10 @@ class EtlDiscardedExpectedChecker : public Checker<check::PostStmt<CallExpr>> {
 
 public:
   void checkPostStmt(const CallExpr *Call, CheckerContext &C) const {
+    if (isAssignmentOperatorCall(Call)) {
+      return;
+    }
+
     QualType ReturnType = Call->getCallReturnType(C.getASTContext());
     if (!isEtlExpectedType(ReturnType)) {
       return;
@@ -277,6 +419,46 @@ public:
     C.emitReport(std::move(Report));
   }
 };
+
+class EtlDiscardedOptionalChecker : public Checker<check::PostStmt<CallExpr>> {
+  mutable std::unique_ptr<BugType> Bug;
+
+public:
+  void checkPostStmt(const CallExpr *Call, CheckerContext &C) const {
+    if (isAssignmentOperatorCall(Call)) {
+      return;
+    }
+
+    QualType ReturnType = Call->getCallReturnType(C.getASTContext());
+    if (!isEtlOptionalType(ReturnType)) {
+      return;
+    }
+
+    const CallValueUse Use = classifyCallValueUse(Call, C.getASTContext());
+    if (Use != CallValueUse::Discarded) {
+      return;
+    }
+
+    if (!Bug) {
+      Bug = std::make_unique<BugType>(
+          this,
+          "Discarded etl::optional Return Value",
+          "C++ ETL Error Handling");
+    }
+
+    ExplodedNode *ErrNode = C.generateErrorNode();
+    if (!ErrNode) {
+      return;
+    }
+
+    auto Report = std::make_unique<PathSensitiveBugReport>(
+        *Bug,
+        "Return value of etl::optional is discarded; potential missing-value handling is ignored",
+        ErrNode);
+    Report->addRange(Call->getSourceRange());
+    C.emitReport(std::move(Report));
+  }
+};
 } // end anonymous namespace
 
 // 3. The Plugin Registration Boilerplate
@@ -291,5 +473,10 @@ extern "C" void clang_registerCheckers(CheckerRegistry &registry) {
   registry.addChecker<EtlDiscardedExpectedChecker>(
       "custom.EtlDiscardedExpectedChecker",
       "Warns when etl::expected return values are discarded",
+      "");
+
+    registry.addChecker<EtlDiscardedOptionalChecker>(
+      "custom.EtlDiscardedOptionalChecker",
+      "Warns when etl::optional return values are discarded",
       "");
 }

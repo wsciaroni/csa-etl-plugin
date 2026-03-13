@@ -1,4 +1,4 @@
-// RUN: clang++ -cc1 -load %/path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker %s -verify
+// RUN: clang++ -cc1 -load %/path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker,custom.EtlDiscardedOptionalChecker %s -verify
 
 // --- Minimal Mock of ETL & STD ---
 namespace std {
@@ -9,6 +9,9 @@ namespace std {
 namespace etl {
   template <typename T>
   struct optional {
+    optional();
+    explicit optional(const T &value);
+
     bool has_value() const;
     explicit operator bool() const;
     
@@ -20,6 +23,12 @@ namespace etl {
     
     T* operator->();
     const T* operator->() const;
+
+    template <typename... Args>
+    T& emplace(Args&&... args);
+
+    optional<T>& operator=(const optional<T>& other);
+    optional<T>& operator=(T value);
     
     void reset();
     void swap(optional<T>& other);
@@ -50,7 +59,9 @@ struct Foo {
 };
 
 etl::expected<int, int> make_expected();
+etl::optional<int> make_optional();
 void consume_expected(etl::expected<int, int> value);
+void consume_optional(etl::optional<int> value);
 
 // ==========================================
 // Basic Unchecked Access
@@ -234,6 +245,37 @@ void test_for_loop(etl::optional<int> opt) {
   }
 }
 
+void test_optional_constructor_with_value_state() {
+  etl::optional<int> opt(7);
+  opt.value(); // no-warning
+}
+
+void test_optional_emplace_state(etl::optional<int> opt) {
+  opt.emplace(11);
+  opt.value(); // no-warning
+}
+
+void test_optional_assignment_from_value_state(etl::optional<int> opt) {
+  opt = 13;
+  opt.value(); // no-warning
+}
+
+void test_optional_assignment_from_checked_source(etl::optional<int> src, etl::optional<int> dst) {
+  if (src) {
+    dst = src;
+    dst.value(); // no-warning
+  }
+}
+
+void test_optional_swap_state_transfer(etl::optional<int> opt1, etl::optional<int> opt2) {
+  if (opt1) {
+    opt1.swap(opt2);
+    opt2.value(); // no-warning
+    opt1.value();
+    // expected-warning@-1 {{etl::expected/optional is dereferenced without a guaranteed value check}}
+  }
+}
+
 // ==========================================
 // expected Exhaustive Branching
 // ==========================================
@@ -334,6 +376,34 @@ etl::expected<int, int> test_expected_return_propagation() {
 
 void test_expected_return_as_argument() {
   consume_expected(make_expected()); // no-warning: return value is consumed
+}
+
+void test_discarded_optional_return() {
+  make_optional();
+  // expected-warning@-1 {{Return value of etl::optional is discarded; potential missing-value handling is ignored}}
+}
+
+void test_explicit_discard_optional_return() {
+  (void)make_optional(); // no-warning: explicit discard intent
+}
+
+void test_assigned_optional_return() {
+  auto value = make_optional(); // no-warning: return value is consumed
+  (void)value;
+}
+
+void test_optional_return_in_condition() {
+  if (make_optional()) {
+    return;
+  }
+}
+
+etl::optional<int> test_optional_return_propagation() {
+  return make_optional(); // no-warning: return value is propagated
+}
+
+void test_optional_return_as_argument() {
+  consume_optional(make_optional()); // no-warning: return value is consumed
 }
 
 // ==========================================
