@@ -48,25 +48,32 @@ cmake --build --preset default
 This project uses Clang's `-verify` flag to ensure the plugin emits warnings exactly where expected. Run the test suite using:
 
 ```bash
-clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker,custom.EtlDiscardedOptionalChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx -verify
+ctest --output-on-failure
 ```
+
+The test suite is split by checker for auditability:
+- `libraries/EtlCheckerlib/tests/test_access_checker.cxx`
+- `libraries/EtlCheckerlib/tests/test_discarded_expected_checker.cxx`
+- `libraries/EtlCheckerlib/tests/test_discarded_optional_checker.cxx`
+
+Each test file is analyzed with all checkers enabled.
 
 ## Usage
 
 Load the compiled shared library dynamically into Clang during analysis:
 
 ```bash
-clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker,custom.EtlDiscardedOptionalChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
+clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker,custom.EtlDiscardedOptionalChecker libraries/EtlCheckerlib/tests/test_access_checker.cxx
 ```
 
 To run only the discarded-return checker:
 
 ```bash
-clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlDiscardedExpectedChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
+clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlDiscardedExpectedChecker libraries/EtlCheckerlib/tests/test_discarded_expected_checker.cxx
 ```
 
 To run only the discarded-optional checker:
 
 ```bash
-clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlDiscardedOptionalChecker libraries/EtlCheckerlib/tests/test_etl_access.cxx
+clang++ -cc1 -load build_clang/libraries/EtlCheckerlib/libEtlChecker.so -analyze -analyzer-checker=custom.EtlDiscardedOptionalChecker libraries/EtlCheckerlib/tests/test_discarded_optional_checker.cxx
 ```
