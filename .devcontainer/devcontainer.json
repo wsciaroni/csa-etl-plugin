@@ -7,5 +7,13 @@
 		"args": {
 			"BASE_IMAGE_NAME": "silkeh/clang:19-bullseye"
 		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cmake-tools",
+				"ms-vscode.cpptools"
+			]
+		}
 	}
 }
