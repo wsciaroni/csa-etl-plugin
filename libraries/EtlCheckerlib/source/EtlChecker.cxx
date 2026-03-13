@@ -15,6 +15,33 @@ enum class EtlState { Unknown, HasValue, Empty };
 REGISTER_MAP_WITH_PROGRAMSTATE(EtlStateMap, const MemRegion *, EtlState)
 
 namespace {
+
+// Helper to ensure we only analyze etl::optional and etl::expected
+static bool isEtlType(const CXXRecordDecl *RD) {
+  if (!RD) return false;
+
+  // If it's a template instantiation (e.g., optional<int>), get the base template decl
+  if (const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(RD)) {
+    RD = CTSD->getSpecializedTemplate()->getTemplatedDecl();
+  }
+
+  if (!RD->getIdentifier()) return false;
+  StringRef Name = RD->getName();
+  
+  if (Name != "optional" && Name != "expected") return false;
+
+  // Walk up the declaration context to ensure it belongs to the "etl" namespace
+  for (const DeclContext *DC = RD->getDeclContext(); DC; DC = DC->getParent()) {
+    if (const auto *NS = dyn_cast<NamespaceDecl>(DC)) {
+      if (NS->getName() == "etl") {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 class EtlAccessChecker : public Checker<check::PreCall, check::PostCall, check::DeadSymbols> {
   mutable std::unique_ptr<BugType> Bug;
 
@@ -22,6 +49,8 @@ public:
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const {
     const auto *MD = dyn_cast_or_null<CXXMethodDecl>(Call.getDecl());
     if (!MD) return;
+
+    if (!isEtlType(MD->getParent())) return;
 
     std::string FuncName = MD->getNameAsString();
 
@@ -76,6 +105,8 @@ public:
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const {
     const auto *MD = dyn_cast_or_null<CXXMethodDecl>(Call.getDecl());
     if (!MD) return;
+
+    if (!isEtlType(MD->getParent())) return;
 
     std::string FuncName = MD->getNameAsString();
 

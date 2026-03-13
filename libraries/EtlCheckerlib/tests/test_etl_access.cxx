@@ -300,3 +300,30 @@ void test_bool_variable_reassignment(const etl::optional<int> &opt) {
     opt.value(); // no-warning
   }
 }
+
+// ==========================================
+// False Positive / Namespace Isolation Tests
+// ==========================================
+
+namespace my_custom_lib {
+  struct optional {
+    bool has_value() const { return false; }
+    int value() { return 0; }
+    int operator*() { return 0; }
+  };
+}
+
+struct DummyPtr {
+  int operator*() { return 0; }
+  void reset() {}
+};
+
+void test_ignore_unrelated_types() {
+  my_custom_lib::optional custom_opt;
+  custom_opt.value(); // no-warning: Right name, wrong namespace
+  *custom_opt;        // no-warning
+
+  DummyPtr ptr;
+  *ptr;               // no-warning: Not an ETL type
+  ptr.reset();        // no-warning
+}
