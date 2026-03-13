@@ -103,7 +103,7 @@ def main():
         # We use the normal driver but pass -Xclang flags to load the plugin
         cmd = [
             "clang++", "--analyze",
-            "-Xclang", "-load", "-Xclang", args.plugin,
+            "-Xclang", "-load", "-Xclang", os.path.abspath(args.plugin),
             "-Xclang", "-analyzer-checker=custom.EtlAccessChecker",
             # Optional: Disable all default checkers to speed up analysis and reduce noise
             # "-Xclang", "-analyzer-disable-all-checks", 
