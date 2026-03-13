@@ -102,11 +102,9 @@ def main():
         # Construct the Clang Analyzer command
         # We use the normal driver but pass -Xclang flags to load the plugin
         cmd = [
-            "clang++", "--analyze",
+            "clang++", "--analyze", "--analyzer-no-default-checks",
             "-Xclang", "-load", "-Xclang", os.path.abspath(args.plugin),
-            "-Xclang", "-analyzer-checker=custom.EtlAccessChecker",
-            # Optional: Disable all default checkers to speed up analysis and reduce noise
-            # "-Xclang", "-analyzer-disable-all-checks", 
+            "-Xclang", "-analyzer-checker=custom.EtlAccessChecker" 
         ] + clean_args + [file_path]
 
         print(f"Analyzing {os.path.basename(file_path)}...")
