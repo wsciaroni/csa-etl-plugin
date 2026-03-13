@@ -1,4 +1,4 @@
-// RUN: clang++ -cc1 -load %/path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker %s -verify
+// RUN: clang++ -cc1 -load %/path/to/libEtlChecker.so -analyze -analyzer-checker=custom.EtlAccessChecker,custom.EtlDiscardedExpectedChecker %s -verify
 
 // --- Minimal Mock of ETL & STD ---
 namespace std {
@@ -48,6 +48,9 @@ namespace etl {
 struct Foo {
   void do_something() const {}
 };
+
+etl::expected<int, int> make_expected();
+void consume_expected(etl::expected<int, int> value);
 
 // ==========================================
 // Basic Unchecked Access
@@ -299,6 +302,38 @@ void test_bool_variable_reassignment(const etl::optional<int> &opt) {
   if (is_still_safe) {
     opt.value(); // no-warning
   }
+}
+
+// ==========================================
+// Discarded expected Return Values
+// ==========================================
+
+void test_discarded_expected_return() {
+  make_expected();
+  // expected-warning@-1 {{Return value of etl::expected is discarded; potential error information is ignored}}
+}
+
+void test_explicit_discard_expected_return() {
+  (void)make_expected(); // no-warning: explicit discard intent
+}
+
+void test_assigned_expected_return() {
+  auto value = make_expected(); // no-warning: return value is consumed
+  (void)value;
+}
+
+void test_expected_return_in_condition() {
+  if (make_expected()) {
+    return;
+  }
+}
+
+etl::expected<int, int> test_expected_return_propagation() {
+  return make_expected(); // no-warning: return value is propagated
+}
+
+void test_expected_return_as_argument() {
+  consume_expected(make_expected()); // no-warning: return value is consumed
 }
 
 // ==========================================
